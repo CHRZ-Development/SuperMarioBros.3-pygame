@@ -9,20 +9,17 @@ import os
 
 from pygame.locals import *
 
-from src.fps import Fps
-from src.window import Window
-from src.select_menu_stage import StageMenu
-from src.title_screen import TitleScreen
-from src.scenes.scene_0 import Scene0
+from src.scenes.animation_levels_scene import AnimationLevelsScene
+from src.scenes.main_menu_scene import MainMenuScene
+from src.scene_manager import SceneManager
+from src.scenes.animation_main_menu_scene import AnimationMainMenuScene
+from src.scenes.intro_scene import IntroScene
+from src.scenes.scene_3 import Scene3
 from src.maps_engine import Maps
-from src.events import Events
 from src.font import Font
 
 
 class Main(object):
-    window_size: Window.Size
-    dt: float   # Time between two frame
-
     def __init__(self):
         with open("config.yaml") as config_file:
             self.config = yaml.safe_load(config_file)
@@ -37,12 +34,12 @@ class Main(object):
         pg.joystick.init()
         pg.font.init()
 
-        self.window_size = Window.Size(
+        self.window_size = (
             self.config["screen"]["width"],
             self.config["screen"]["height"]
         )
         self.screen = pg.display.set_mode(
-            tuple(self.window_size),
+            self.window_size,
             self.config["screen"]["flags"],
             self.config["screen"]["depth"]
         )
@@ -80,17 +77,20 @@ class Main(object):
         with open("save.yaml") as save_file:
             self.save = yaml.safe_load(save_file)
 
-        self.stage_menu = StageMenu()
-        # Keyboard event and/or remote control
-        self.event = Events(self.res["annexe"])
-        # Intro CHRZASZCZ Development.
-        self.scene_0 = Scene0(self.res)
-        # Title screen of Super Mario Bros3.
-        self.title_screen = TitleScreen(self.res)
+        self.scene_manager = SceneManager()
+        self.scene_manager.register("intro", IntroScene(self.display, self.res))
+        self.scene_manager.register("animation_main_menu", AnimationMainMenuScene(self.display, self.res))
+        self.scene_manager.register("main_menu", MainMenuScene(self.display, self.res))
+        self.scene_manager.register("animation_levels", AnimationLevelsScene(self.display, self.res))
+        self.scene_manager.register("enter_world", Scene3())
+        
+        if self.config["skipIntro"]:
+            self.scene_manager.set_default_scene("animation_main_menu")
+        else:
+            self.scene_manager.set_default_scene("intro")
 
         self.font_custom = Font()
         self.maps = Maps()
-        self.fps = Fps()
 
     @staticmethod
     def load_img(directory, color_key=(255, 174, 201)):
@@ -99,66 +99,16 @@ class Main(object):
         return img
 
     def run(self):
+        clock = pg.time.Clock()
         while True:
-            # FPS MANAGEMENT
-            self.dt = self.fps.manage(fps=0)
-            if self.fps.benchmark and int(self.t)%15 == 0:
-                self.fps.get(); self.fps.average()
-            self.t += (1 * self.dt)
-
-            # Scene n°0
-            if not self.scene_0.getFinish():
-                self.scene_0.start(self.display, self.dt)
-            else:
-                if len(self.event.joysticks) != 0 and not self.event.is_calibrate:
-                    self.event.calibrate(self.display)
-                    self.screen.blit(pg.transform.scale(self.display, (self.window_size[0], self.window_size[1])), (0, 0))
-                else:
-                    self.event.get()
-                    # LOAD
-                    # select stage maps
-                    if not self.title_screen.getIsTitle() and not self.stage_menu.load_stage_menu:
-                        self.display.fill((0, 0, 0))
-                        print("Game: Load stage menu...")
-                        self.stage_menu.new(self.res)
-                        print("Game: Stage menu is loaded !")
-                        self.stage_menu.load_stage_menu = True
-                    # maps
-                    elif not self.stage_menu.load_maps and self.stage_menu.pass_maps:
-                        self.display.fill((0, 0, 0))
-                        print("Game: Load maps...")
-                        self.maps.new(self.res, self.stage_menu.stage)
-                        print("Game: Maps is loaded !")
-                        self.stage_menu.load_maps = True
-
-                    # DRAWs
-                    if self.title_screen.getIsTitle():
-                        self.title_screen.draw(self.display)
-                    if self.title_screen.getPassStageMenu():
-                        self.stage_menu.draw(self.display)
-                    if self.stage_menu.pass_maps:
-                        self.maps.draw(self.display)
-                    # HUD
-                    if not self.title_screen.getIsTitle():
-                        hud_sheet = self.res["tiles"]["HUDSheet"]
-                        pg.draw.rect(self.display, (0, 0, 0), Rect(0, self.display.get_height() - 45, self.display.get_width(), 45))
-                        self.display.blit(hud_sheet.subsurface(0, 0, 154, 30), (self.display.get_width() / 6, self.display.get_height() - 40))
-                        self.display.blit(hud_sheet.subsurface(155, 0, 74, 30), (self.display.get_width() / 1.5, self.display.get_height() - 40))
-                        self.font_custom.draw_msg(self.display, [self.display.get_width() / 6 + 133, self.display.get_height() - 33], f'{self.stage_menu.player.coins}') if self.stage_menu.is_menu_stage else self.font_custom.draw_msg(self.display, [98, 192], f'{self.maps.player.coins}')
-                        self.font_custom.draw_msg(self.display, [self.display.get_width() / 6 + 105, self.display.get_height() - 25], f'{self.stage_menu.player.score}', True) if self.stage_menu.is_menu_stage else self.font_custom.draw_msg(self.display, [98, 192], f'{self.maps.player.score}', True)
-                        self.font_custom.draw_msg(self.display, [self.display.get_width() / 6 + 28, self.display.get_height() - 25], f'{self.stage_menu.player.life}') if self.stage_menu.is_menu_stage else self.font_custom.draw_msg(self.display, [98, 192], f'{self.maps.player.life}')
-                        self.font_custom.draw_msg(self.display, [self.display.get_width() / 6 + 35, self.display.get_height() - 33], self.stage_menu.stage)
-
-                    # UPDATES
-                    if self.title_screen.getIsTitle():
-                        self.title_screen.updates(self.dt, self.event.keys_pressed)
-                    if all([self.title_screen.getPassStageMenu(), self.stage_menu.load_stage_menu, not self.stage_menu.pass_maps]):
-                        self.stage_menu.updates(self.dt, self.event.keys_pressed)
-                    if self.stage_menu.pass_maps and self.stage_menu.load_maps:
-                        self.maps.updates(self.dt, self.event.keys_pressed)
-
-            self.screen.blit(pg.transform.scale(self.display, tuple(self.window_size)), (0, 0))
-            self.fps.draw(self.screen)  # Monitoring
+            dt = clock.tick(self.config["framerateLimit"]) / 1000.
+            
+            self.scene_manager.handle_events(pg.event.get())
+            self.screen.fill((0, 0, 0))
+            self.scene_manager.draw()
+            self.screen.blit(pg.transform.scale(self.display, self.window_size), (0, 0))
+            
+            self.scene_manager.update(dt)
             pg.display.update()
 
 
